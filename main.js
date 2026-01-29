@@ -6,27 +6,31 @@ const ISO_BANDS = [
 
 const SCENARIOS = [
     // Level 1: Simulation
-    { id: '1-1', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
-    /*{ id: '1-2', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
-    { id: '1-3', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
-    { id: '1-4', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
-    { id: '1-5', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
-    // Level 2: Speech
-    { id: '2-1', type: 'audio', path: 'assets/Speech/speech_01002' },
-    { id: '2-2', type: 'audio', path: 'assets/Speech/speech_01004' },
-    { id: '2-3', type: 'audio', path: 'assets/Speech/speech_01023' },
-    { id: '2-4', type: 'audio', path: 'assets/Speech/speech_01002' }, 
-    { id: '2-5', type: 'audio', path: 'assets/Speech/speech_01004' },
-    // Level 3: Music
-    { id: '3-1', type: 'audio', path: 'assets/Music/music_01002' },
-    { id: '3-2', type: 'audio', path: 'assets/Music/music_01004' },
-    { id: '3-3', type: 'audio', path: 'assets/Music/music_01010' },
-    { id: '3-4', type: 'audio', path: 'assets/Music/music_02010' },*/
-    { id: '3-5', type: 'audio', path: 'assets/Music/music_01002' }
+    //{ id: '1-1', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
+    //{ id: '1-2', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
+    //{ id: '1-3', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
+    //{ id: '1-4', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
+    //{ id: '1-5', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
+    //// Level 2: Speech
+    //{ id: '2-1', type: 'audio', path: 'assets/Speech/speech_01002' },
+    //{ id: '2-2', type: 'audio', path: 'assets/Speech/speech_01004' },
+    //{ id: '2-3', type: 'audio', path: 'assets/Speech/speech_01023' },
+    //{ id: '2-4', type: 'audio', path: 'assets/Speech/speech_01002' }, 
+    //{ id: '2-5', type: 'audio', path: 'assets/Speech/speech_01004' },
+    //// Level 3: Music
+    //{ id: '3-1', type: 'audio', path: 'assets/Music/music_01002' },
+    //{ id: '3-2', type: 'audio', path: 'assets/Music/music_01004' },
+    //{ id: '3-3', type: 'audio', path: 'assets/Music/music_01010' },
+    { id: '3-4', type: 'audio', path: 'assets/Music/music_02010' },
+    //{ id: '3-5', type: 'audio', path: 'assets/Music/music_01002' }
 ];
-
 const RAMP_DURATION = 1.0; 
 const ANALYZER_FFT_SIZE = 2048;
+// dB範囲の定義
+const MIN_DB = -100;
+const MAX_DB = -10; 
+// 【タスク1-5】ピーク値の減衰速度 (dB per frame)
+const PEAK_DECAY = 0.01;
 
 // --- State Management ---
 const state = {
@@ -34,11 +38,7 @@ const state = {
     phase: 1, // 1: Blind, 2: Assisted
     currentQuestionIndex: 0,
     results: [],
-    
-    // Level 1 で生成した乱数を Phase 2 で再現するためのキャッシュ
     generatedParams: [], 
-
-    // Current Round Data
     targetFreq: 1000,
     startTime: 0,
     currentOnsetStart: 0, 
@@ -46,11 +46,11 @@ const state = {
     reactionTime: null,
     selectedBand: null,
     score: { time: 0, freq: 0, total: 0, distance: 0 },
-    
-    // Audio
     audioCtx: null,
     nodes: {},
     analyserData: null,
+    // 【タスク1-5】ピーク値を保持する配列
+    peakValues: null,
     animationId: null
 };
 
@@ -67,21 +67,16 @@ const els = {
         result: document.getElementById('screenResult'),
         fail: document.getElementById('screenFail')
     },
-    // Analyzer
     analyzerContainer: document.getElementById('analyzerContainer'),
     analyzerCanvas: document.getElementById('analyzerCanvas'),
     detectedFreq: document.getElementById('detectedFreq'),
     detectedFreqVal: document.getElementById('detectedFreqVal'),
-    
-    // Results
     geqContainer: document.getElementById('geqContainer'),
     resTime: document.getElementById('resTime'),
     resDiff: document.getElementById('resDiff'),
     resTotal: document.getElementById('resTotal'),
     failTime: document.getElementById('failTime'),
     actualOnset: document.getElementById('actualOnset'),
-    
-    // Buttons
     btnStart: document.getElementById('btnStart'),
     btnStartPhase2: document.getElementById('btnStartPhase2'),
     btnNext: document.getElementById('btnNext'),
@@ -129,7 +124,6 @@ function initAudio() {
 }
 
 function stopAudio() {
-    // 描画ループ停止
     if (state.animationId) {
         cancelAnimationFrame(state.animationId);
         state.animationId = null;
@@ -159,34 +153,45 @@ function createNoiseBuffer(ctx) {
 
 // --- Analyzer Logic (Refactored) ---
 
-// 1. Setup: ノードの準備と表示切り替えのみ行う
+function interpolate(v1, v2, fraction) {
+    if (!isFinite(v1)) v1 = MIN_DB;
+    if (!isFinite(v2)) v2 = MIN_DB;
+    return v1 + (v2 - v1) * fraction;
+}
+
+function normalizeDb(db) {
+    return Math.max(0, Math.min(1, (db - MIN_DB) / (MAX_DB - MIN_DB)));
+}
+
 function setupAnalyzer(sourceNode) {
     if (state.phase !== 2) {
         els.analyzerContainer.classList.add('hidden');
         return;
     }
     
-    // Canvas & UI 表示
     els.analyzerContainer.classList.remove('hidden');
     
     const analyser = state.audioCtx.createAnalyser();
     analyser.fftSize = ANALYZER_FFT_SIZE;
     analyser.smoothingTimeConstant = 0.8;
+    analyser.minDecibels = MIN_DB;
+    analyser.maxDecibels = MAX_DB;
+    
     sourceNode.connect(analyser);
     state.nodes.analyser = analyser;
     
     const bufferLength = analyser.frequencyBinCount;
-    state.analyserData = new Uint8Array(bufferLength);
+    state.analyserData = new Float32Array(bufferLength);
+    // 【タスク1-5】ピーク値配列の初期化
+    state.peakValues = new Float32Array(bufferLength).fill(MIN_DB);
 }
 
-// 2. Start Loop: アニメーションループを開始するトリガー
 function startAnalyzerLoop() {
     if (state.phase === 2 && state.mode === 'playing') {
         updateAnalyzerLoop();
     }
 }
 
-// 3. Main Loop: データの取得と各処理の呼び出し、ループ継続管理
 function updateAnalyzerLoop() {
     if (state.mode !== 'playing') return;
 
@@ -195,24 +200,31 @@ function updateAnalyzerLoop() {
     const analyser = state.nodes.analyser;
     if (!analyser) return;
 
-    // データ取得
-    analyser.getByteFrequencyData(state.analyserData);
+    analyser.getFloatFrequencyData(state.analyserData);
 
-    // ロジック処理: ピーク検知
+    // 【タスク1-5】ピーク値の更新と減衰
+    for (let i = 0; i < state.analyserData.length; i++) {
+        const currentDb = state.analyserData[i];
+        if (currentDb > state.peakValues[i]) {
+            state.peakValues[i] = currentDb; // 新しいピーク
+        } else {
+            state.peakValues[i] -= PEAK_DECAY; // 減衰
+            if (state.peakValues[i] < MIN_DB) state.peakValues[i] = MIN_DB;
+        }
+    }
+
     const peakInfo = detectPeak(state.analyserData);
 
-    // 描画処理: Canvas更新
     drawSpectrum(state.analyserData, peakInfo);
 
-    // UI処理: 数値表示更新
     updateAnalyzerUI(peakInfo);
 }
 
-// 4. Logic: ピーク検出と閾値判定を行う (純粋な計算)
 function detectPeak(data) {
-    let maxVal = 0;
+    let maxVal = -Infinity; 
     let maxIndex = 0;
-    const threshold = 180; // 【調整ポイント】検知感度
+    
+    const threshold = -30; 
 
     for(let i = 0; i < data.length; i++) {
         if (data[i] > maxVal) {
@@ -228,50 +240,165 @@ function detectPeak(data) {
     return { detected, freq, maxIndex, maxVal };
 }
 
+function drawGrid(ctx, w, h, bufferLength) {
+    if (!state.audioCtx) return;
+    const sampleRate = state.audioCtx.sampleRate;
+    
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)'; 
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';    
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'center';
+
+    const freqTargets = [100, 1000, 10000];
+    
+    freqTargets.forEach(f => {
+        const nyquist = sampleRate / 2;
+        const index = (f / nyquist) * bufferLength;
+        
+        if (index < 1) return; 
+        
+        const percent = Math.log(index) / Math.log(bufferLength - 1);
+        const x = w * percent;
+        
+        if (x >= 0 && x <= w) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, h);
+            ctx.stroke();
+            
+            const label = f >= 1000 ? (f/1000) + 'k' : f;
+            ctx.fillText(label, x, h - 2);
+        }
+    });
+
+    ctx.textAlign = 'left';
+    
+    for (let db = MAX_DB - 10; db > MIN_DB; db -= 20) {
+        const normalized = (db - MIN_DB) / (MAX_DB - MIN_DB);
+        const y = h - (normalized * h);
+        
+        if (y >= 0 && y <= h) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(w, y);
+            ctx.stroke();
+            ctx.fillText(db + 'dB', 2, y - 2);
+        }
+    }
+}
+
 // 5. Drawing: Canvasへの描画のみを行う
 function drawSpectrum(data, peakInfo) {
     const canvas = els.analyzerCanvas;
     const ctx = canvas.getContext('2d');
     
-    // Resize handling
     if (canvas.width !== canvas.clientWidth || canvas.height !== canvas.clientHeight) {
         canvas.width = canvas.clientWidth;
         canvas.height = canvas.clientHeight;
     }
     const width = canvas.width;
     const height = canvas.height;
+    const bufferLength = data.length;
 
-    // Clear
+    // Clear (Background)
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, width, height);
 
-    const barWidth = (width / data.length) * 2.5;
-    let x = 0;
+    drawGrid(ctx, width, height, bufferLength);
 
-    // Draw Bars
-    for(let i = 0; i < data.length; i++) {
-        const barHeight = data[i] / 255 * height;
+    // --- Create Gradient ---
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, 'rgba(0, 242, 255, 0.6)');   // Top: Cyan
+    gradient.addColorStop(0.5, 'rgba(0, 242, 255, 0.2)'); // Mid
+    gradient.addColorStop(1, 'rgba(0, 242, 255, 0.0)');   // Bottom: Transparent
+
+    // --- Path for Fill (Main Spectrum) ---
+    ctx.beginPath();
+    ctx.moveTo(0, height); 
+
+    // 対数スケールで描画ポイントを計算
+    for (let x = 0; x <= width; x++) {
+        const percent = x / width;
+        const logIndex = 1 * Math.pow((bufferLength - 1) / 1, percent);
+        const iBase = Math.floor(logIndex);
+        const iFrac = logIndex - iBase;
         
-        // 【調整ポイント】バーの色
-        let r = barHeight + (25 * (i/data.length));
-        let g = 250 * (i/data.length);
-        let b = 50;
+        const v1 = data[iBase];
+        const v2 = data[iBase + 1];
+        const valDb = interpolate(v1, v2, iFrac);
 
-        ctx.fillStyle = `rgb(${r},${g},${b})`;
-        ctx.fillRect(x, height - barHeight, barWidth, barHeight);
+        const normalizedVal = normalizeDb(valDb);
+        const y = height - (normalizedVal * height);
 
-        x += barWidth + 1;
+        ctx.lineTo(x, y);
     }
 
-    // Highlight Peak (もし検知されていたら赤く塗る)
+    ctx.lineTo(width, height); 
+    ctx.closePath(); 
+
+    // Fill
+    ctx.fillStyle = gradient;
+    ctx.fill();
+
+    // --- Path for Stroke (Line) ---
+    ctx.beginPath();
+    for (let x = 0; x <= width; x++) {
+        const percent = x / width;
+        const logIndex = 1 * Math.pow((bufferLength - 1) / 1, percent);
+        const iBase = Math.floor(logIndex);
+        const iFrac = logIndex - iBase;
+        const valDb = interpolate(data[iBase], data[iBase + 1], iFrac);
+        const normalizedVal = normalizeDb(valDb);
+        const y = height - (normalizedVal * height);
+
+        if (x === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+    
+    ctx.strokeStyle = '#00f2ff'; // Cyan Line
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // --- 【タスク1-5】Path for Peak Hold (Yellow Dashed Line) ---
+    if (state.peakValues) {
+        ctx.beginPath();
+        for (let x = 0; x <= width; x++) {
+            const percent = x / width;
+            const logIndex = 1 * Math.pow((bufferLength - 1) / 1, percent);
+            const iBase = Math.floor(logIndex);
+            const iFrac = logIndex - iBase;
+            
+            // ピーク値の補間
+            const p1 = state.peakValues[iBase];
+            const p2 = state.peakValues[iBase + 1];
+            const peakDb = interpolate(p1, p2, iFrac);
+            
+            const normalizedPeak = normalizeDb(peakDb);
+            const y = height - (normalizedPeak * height);
+
+            if (x === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = 'rgba(255, 235, 59, 0.8)'; // Yellow
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 4]); // 破線
+        ctx.stroke();
+        ctx.setLineDash([]); // リセット
+    }
+
+    // Highlight Peak (Detection Indicator)
     if (peakInfo.detected) {
-        const detectedX = peakInfo.maxIndex * (barWidth + 1);
-        ctx.fillStyle = 'rgba(255, 0, 0, 0.8)'; // 赤色
-        ctx.fillRect(detectedX, 0, barWidth, height);
+        const safeIndex = Math.max(1, peakInfo.maxIndex); 
+        const percent = Math.log(safeIndex) / Math.log(bufferLength - 1);
+        const detectedX = width * percent;
+        
+        const highlightWidth = 4;
+
+        ctx.fillStyle = 'rgba(255, 50, 50, 0.8)'; 
+        ctx.fillRect(detectedX - highlightWidth/2, 0, highlightWidth, height);
     }
 }
 
-// 6. UI: DOM要素の更新のみを行う
 function updateAnalyzerUI(peakInfo) {
     if (peakInfo.detected) {
         els.detectedFreq.classList.remove('hidden');
@@ -353,7 +480,6 @@ async function setupQuestion() {
         state.currentRampDuration = RAMP_DURATION;
         setMode('playing');
         
-        // 描画ループ開始
         startAnalyzerLoop();
         
         requestAnimationFrame(updateTimer);
@@ -380,7 +506,6 @@ async function setupQuestion() {
             state.currentRampDuration = RAMP_DURATION;
             setMode('playing');
 
-            // 描画ループ開始
             startAnalyzerLoop();
 
             requestAnimationFrame(updateTimer);
