@@ -6,31 +6,36 @@ const ISO_BANDS = [
 
 const SCENARIOS = [
     // Level 1: Simulation
-    //{ id: '1-1', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
-    //{ id: '1-2', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
-    //{ id: '1-3', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
-    //{ id: '1-4', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
-    //{ id: '1-5', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
-    //// Level 2: Speech
-    //{ id: '2-1', type: 'audio', path: 'assets/Speech/speech_01002' },
-    //{ id: '2-2', type: 'audio', path: 'assets/Speech/speech_01004' },
-    //{ id: '2-3', type: 'audio', path: 'assets/Speech/speech_01023' },
-    //{ id: '2-4', type: 'audio', path: 'assets/Speech/speech_01002' }, 
-    //{ id: '2-5', type: 'audio', path: 'assets/Speech/speech_01004' },
-    //// Level 3: Music
-    //{ id: '3-1', type: 'audio', path: 'assets/Music/music_01002' },
-    //{ id: '3-2', type: 'audio', path: 'assets/Music/music_01004' },
-    //{ id: '3-3', type: 'audio', path: 'assets/Music/music_01010' },
+    { id: '1-1', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
+    { id: '1-2', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
+    { id: '1-3', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
+    { id: '1-4', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
+    { id: '1-5', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
+    // Level 2: Speech
+    { id: '2-1', type: 'audio', path: 'assets/Speech/speech_01002' },
+    { id: '2-2', type: 'audio', path: 'assets/Speech/speech_01004' },
+    { id: '2-3', type: 'audio', path: 'assets/Speech/speech_01023' },
+    { id: '2-4', type: 'audio', path: 'assets/Speech/speech_01002' }, 
+    { id: '2-5', type: 'audio', path: 'assets/Speech/speech_01004' },
+    // Level 3: Music
+    { id: '3-1', type: 'audio', path: 'assets/Music/music_01002' },
+    { id: '3-2', type: 'audio', path: 'assets/Music/music_01004' },
+    { id: '3-3', type: 'audio', path: 'assets/Music/music_01010' },
     { id: '3-4', type: 'audio', path: 'assets/Music/music_02010' },
-    //{ id: '3-5', type: 'audio', path: 'assets/Music/music_01002' }
+    { id: '3-5', type: 'audio', path: 'assets/Music/music_01002' }
 ];
+
 const RAMP_DURATION = 1.0; 
 const ANALYZER_FFT_SIZE = 2048;
 // dB範囲の定義
 const MIN_DB = -100;
 const MAX_DB = -10; 
-// 【タスク1-5】ピーク値の減衰速度 (dB per frame)
-const PEAK_DECAY = 0.01;
+// ピーク値の減衰速度 (dB per frame)
+const PEAK_DECAY = 0.5; 
+// 履歴バッファサイズ (フレーム数)
+const HISTORY_SIZE = 64;
+// 【タスク2-2】動的閾値の係数 (標準偏差の何倍を閾値とするか)
+const DYNAMIC_THRESHOLD_ALPHA = 6.0;
 
 // --- State Management ---
 const state = {
@@ -49,8 +54,9 @@ const state = {
     audioCtx: null,
     nodes: {},
     analyserData: null,
-    // 【タスク1-5】ピーク値を保持する配列
     peakValues: null,
+    // 線形振幅の履歴
+    linearHistory: [],
     animationId: null
 };
 
@@ -182,8 +188,8 @@ function setupAnalyzer(sourceNode) {
     
     const bufferLength = analyser.frequencyBinCount;
     state.analyserData = new Float32Array(bufferLength);
-    // 【タスク1-5】ピーク値配列の初期化
     state.peakValues = new Float32Array(bufferLength).fill(MIN_DB);
+    state.linearHistory = [];
 }
 
 function startAnalyzerLoop() {
@@ -202,42 +208,86 @@ function updateAnalyzerLoop() {
 
     analyser.getFloatFrequencyData(state.analyserData);
 
-    // 【タスク1-5】ピーク値の更新と減衰
+    // ピーク値の更新と減衰
     for (let i = 0; i < state.analyserData.length; i++) {
         const currentDb = state.analyserData[i];
         if (currentDb > state.peakValues[i]) {
-            state.peakValues[i] = currentDb; // 新しいピーク
+            state.peakValues[i] = currentDb; 
         } else {
-            state.peakValues[i] -= PEAK_DECAY; // 減衰
+            state.peakValues[i] -= PEAK_DECAY; 
             if (state.peakValues[i] < MIN_DB) state.peakValues[i] = MIN_DB;
         }
     }
 
-    const peakInfo = detectPeak(state.analyserData);
+    // 履歴バッファへの追加 (dB -> Linear変換)
+    const binCount = state.analyserData.length;
+    const linearData = new Float32Array(binCount);
+    for (let i = 0; i < binCount; i++) {
+        // dBFS to Linear Amplitude: 10^(dB/20)
+        linearData[i] = Math.pow(10, state.analyserData[i] / 20);
+    }
+    
+    state.linearHistory.push(linearData);
+    if (state.linearHistory.length > HISTORY_SIZE) {
+        state.linearHistory.shift(); // FIFO (古いものを捨てる)
+    }
+
+    // 【タスク2-2】現在のリニアデータを使ってピーク検知
+    const currentLinear = state.linearHistory[state.linearHistory.length - 1];
+    const peakInfo = detectPeak(state.analyserData, currentLinear);
 
     drawSpectrum(state.analyserData, peakInfo);
 
     updateAnalyzerUI(peakInfo);
 }
 
-function detectPeak(data) {
-    let maxVal = -Infinity; 
+// 【タスク2-2】detectPeak関数を統計的アプローチに更新
+function detectPeak(dbData, linearData) {
+    let maxValDb = -Infinity; 
     let maxIndex = 0;
-    
-    const threshold = -30; 
 
-    for(let i = 0; i < data.length; i++) {
-        if (data[i] > maxVal) {
-            maxVal = data[i];
+    // 1. 最大音量のビンを探す (dBデータを使用)
+    for(let i = 0; i < dbData.length; i++) {
+        if (dbData[i] > maxValDb) {
+            maxValDb = dbData[i];
             maxIndex = i;
         }
     }
 
-    const nyquist = state.audioCtx.sampleRate / 2;
-    const freq = maxIndex * (nyquist / data.length);
-    const detected = maxVal > threshold;
+    let detected = false;
+    
+    // 2. 統計情報の計算 (リニアデータを使用)
+    if (linearData && linearData.length > 0) {
+        let sum = 0;
+        let sumSq = 0;
+        const len = linearData.length;
+        
+        for (let i = 0; i < len; i++) {
+            const v = linearData[i];
+            sum += v;
+            sumSq += v * v;
+        }
+        
+        const mean = sum / len;
+        const variance = (sumSq / len) - (mean * mean);
+        const stdDev = Math.sqrt(Math.max(0, variance));
+        
+        // 動的閾値: 平均 + α * 標準偏差
+        const dynamicThreshold = mean + (DYNAMIC_THRESHOLD_ALPHA * stdDev);
+        
+        // 最大値が動的閾値を超えているか？
+        detected = linearData[maxIndex] > dynamicThreshold;
+        
+        // 無音に近い状態での誤検知防止 (最小dBチェック)
+        if (maxValDb < -80) {
+            detected = false;
+        }
+    }
 
-    return { detected, freq, maxIndex, maxVal };
+    const nyquist = state.audioCtx.sampleRate / 2;
+    const freq = maxIndex * (nyquist / dbData.length);
+
+    return { detected, freq, maxIndex, maxVal: maxValDb };
 }
 
 function drawGrid(ctx, w, h, bufferLength) {
@@ -359,7 +409,7 @@ function drawSpectrum(data, peakInfo) {
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // --- 【タスク1-5】Path for Peak Hold (Yellow Dashed Line) ---
+    // --- Path for Peak Hold (Yellow Dashed Line) ---
     if (state.peakValues) {
         ctx.beginPath();
         for (let x = 0; x <= width; x++) {
@@ -368,7 +418,6 @@ function drawSpectrum(data, peakInfo) {
             const iBase = Math.floor(logIndex);
             const iFrac = logIndex - iBase;
             
-            // ピーク値の補間
             const p1 = state.peakValues[iBase];
             const p2 = state.peakValues[iBase + 1];
             const peakDb = interpolate(p1, p2, iFrac);
