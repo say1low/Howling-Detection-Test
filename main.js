@@ -7,7 +7,7 @@ const ISO_BANDS = [
 const SCENARIOS = [
     // Level 1: Simulation
     { id: '1-1', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
-    { id: '1-2', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
+    /*{ id: '1-2', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
     { id: '1-3', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
     { id: '1-4', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
     { id: '1-5', type: 'synth', onsetRange: {min: 4.0, max: 8.0}, targetFreqRange: {min: 400, max: 4000} },
@@ -21,7 +21,7 @@ const SCENARIOS = [
     { id: '3-1', type: 'audio', path: 'assets/Music/music_01002' },
     { id: '3-2', type: 'audio', path: 'assets/Music/music_01004' },
     { id: '3-3', type: 'audio', path: 'assets/Music/music_01010' },
-    { id: '3-4', type: 'audio', path: 'assets/Music/music_02010' },
+    { id: '3-4', type: 'audio', path: 'assets/Music/music_02010' },*/
     { id: '3-5', type: 'audio', path: 'assets/Music/music_01002' }
 ];
 
@@ -36,7 +36,6 @@ const state = {
     results: [],
     
     // Level 1 で生成した乱数を Phase 2 で再現するためのキャッシュ
-    // { index: number, onset: number, freq: number }
     generatedParams: [], 
 
     // Current Round Data
@@ -158,7 +157,9 @@ function createNoiseBuffer(ctx) {
     return buffer;
 }
 
-// --- Analyzer Logic ---
+// --- Analyzer Logic (Refactored) ---
+
+// 1. Setup: ノードの準備と表示切り替えのみ行う
 function setupAnalyzer(sourceNode) {
     if (state.phase !== 2) {
         els.analyzerContainer.classList.add('hidden');
@@ -170,22 +171,67 @@ function setupAnalyzer(sourceNode) {
     
     const analyser = state.audioCtx.createAnalyser();
     analyser.fftSize = ANALYZER_FFT_SIZE;
-    analyser.smoothingTimeConstant = 0.8; // 滑らかに
+    analyser.smoothingTimeConstant = 0.8;
     sourceNode.connect(analyser);
     state.nodes.analyser = analyser;
     
     const bufferLength = analyser.frequencyBinCount;
     state.analyserData = new Uint8Array(bufferLength);
-    
-    drawAnalyzer();
 }
 
-function drawAnalyzer() {
+// 2. Start Loop: アニメーションループを開始するトリガー
+function startAnalyzerLoop() {
+    if (state.phase === 2 && state.mode === 'playing') {
+        updateAnalyzerLoop();
+    }
+}
+
+// 3. Main Loop: データの取得と各処理の呼び出し、ループ継続管理
+function updateAnalyzerLoop() {
     if (state.mode !== 'playing') return;
-    
+
+    state.animationId = requestAnimationFrame(updateAnalyzerLoop);
+
+    const analyser = state.nodes.analyser;
+    if (!analyser) return;
+
+    // データ取得
+    analyser.getByteFrequencyData(state.analyserData);
+
+    // ロジック処理: ピーク検知
+    const peakInfo = detectPeak(state.analyserData);
+
+    // 描画処理: Canvas更新
+    drawSpectrum(state.analyserData, peakInfo);
+
+    // UI処理: 数値表示更新
+    updateAnalyzerUI(peakInfo);
+}
+
+// 4. Logic: ピーク検出と閾値判定を行う (純粋な計算)
+function detectPeak(data) {
+    let maxVal = 0;
+    let maxIndex = 0;
+    const threshold = 180; // 【調整ポイント】検知感度
+
+    for(let i = 0; i < data.length; i++) {
+        if (data[i] > maxVal) {
+            maxVal = data[i];
+            maxIndex = i;
+        }
+    }
+
+    const nyquist = state.audioCtx.sampleRate / 2;
+    const freq = maxIndex * (nyquist / data.length);
+    const detected = maxVal > threshold;
+
+    return { detected, freq, maxIndex, maxVal };
+}
+
+// 5. Drawing: Canvasへの描画のみを行う
+function drawSpectrum(data, peakInfo) {
     const canvas = els.analyzerCanvas;
     const ctx = canvas.getContext('2d');
-    const analyser = state.nodes.analyser;
     
     // Resize handling
     if (canvas.width !== canvas.clientWidth || canvas.height !== canvas.clientHeight) {
@@ -195,33 +241,20 @@ function drawAnalyzer() {
     const width = canvas.width;
     const height = canvas.height;
 
-    state.animationId = requestAnimationFrame(drawAnalyzer);
-
-    analyser.getByteFrequencyData(state.analyserData);
-
+    // Clear
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, width, height);
 
-    const barWidth = (width / state.analyserData.length) * 2.5;
-    let barHeight;
+    const barWidth = (width / data.length) * 2.5;
     let x = 0;
-    
-    // ピーク検出用
-    let maxVal = 0;
-    let maxIndex = 0;
-    const threshold = 180; // 検知閾値 (0-255)
 
-    for(let i = 0; i < state.analyserData.length; i++) {
-        barHeight = state.analyserData[i] / 255 * height;
+    // Draw Bars
+    for(let i = 0; i < data.length; i++) {
+        const barHeight = data[i] / 255 * height;
         
-        // 色の決定
-        if (state.analyserData[i] > maxVal) {
-            maxVal = state.analyserData[i];
-            maxIndex = i;
-        }
-
-        let r = barHeight + (25 * (i/state.analyserData.length));
-        let g = 250 * (i/state.analyserData.length);
+        // 【調整ポイント】バーの色
+        let r = barHeight + (25 * (i/data.length));
+        let g = 250 * (i/data.length);
         let b = 50;
 
         ctx.fillStyle = `rgb(${r},${g},${b})`;
@@ -230,21 +263,19 @@ function drawAnalyzer() {
         x += barWidth + 1;
     }
 
-    // ハウリング検知ロジック (簡易版: 閾値を超えた最大ピークを表示)
-    if (maxVal > threshold) {
-        // インデックスから周波数を計算
-        const nyquist = state.audioCtx.sampleRate / 2;
-        const detectedFreq = maxIndex * (nyquist / state.analyserData.length);
-        
-        // UI更新
+    // Highlight Peak (もし検知されていたら赤く塗る)
+    if (peakInfo.detected) {
+        const detectedX = peakInfo.maxIndex * (barWidth + 1);
+        ctx.fillStyle = 'rgba(255, 0, 0, 0.8)'; // 赤色
+        ctx.fillRect(detectedX, 0, barWidth, height);
+    }
+}
+
+// 6. UI: DOM要素の更新のみを行う
+function updateAnalyzerUI(peakInfo) {
+    if (peakInfo.detected) {
         els.detectedFreq.classList.remove('hidden');
-        els.detectedFreqVal.textContent = Math.round(detectedFreq);
-        
-        // グラフ上で該当バーを赤くする
-        const detectedX = maxIndex * (barWidth + 1);
-        ctx.fillStyle = 'red';
-        ctx.fillRect(detectedX, 0, barWidth, height); // 全高で赤帯を表示
-        
+        els.detectedFreqVal.textContent = Math.round(peakInfo.freq);
     } else {
         els.detectedFreq.classList.add('hidden');
     }
@@ -261,7 +292,6 @@ async function setupQuestion() {
     const t = ctx.currentTime;
     state.startTime = t;
 
-    // Phaseに応じた設定
     if (state.phase === 1) {
         els.phaseDisplay.textContent = "PHASE 1: Blind Test";
         els.phaseDisplay.className = "bg-gray-800 px-2 py-1 rounded border border-gray-600 text-gray-400";
@@ -272,21 +302,16 @@ async function setupQuestion() {
 
     const currentConfig = SCENARIOS[state.currentQuestionIndex];
 
-    // Master Gain
     const masterGain = ctx.createGain();
-    masterGain.gain.value = 0.5; // マスタ音量は0.5のまま
+    masterGain.gain.value = 0.5;
     masterGain.connect(ctx.destination);
     state.nodes.masterGain = masterGain;
-
-    // --- Audio Synthesis / Loading ---
     
+    // --- Synth Mode ---
     if (currentConfig.type === 'synth') {
-        // Level 1: Simulation
         setStatus(`Q${state.currentQuestionIndex + 1}: Simulation`);
 
-        // パラメータ決定ロジック
         if (state.phase === 1) {
-            // Phase 1: 新規生成して保存
             const onset = currentConfig.onsetRange.min + Math.random() * (currentConfig.onsetRange.max - currentConfig.onsetRange.min);
             const possibleBands = ISO_BANDS.filter(f => f >= currentConfig.targetFreqRange.min && f <= currentConfig.targetFreqRange.max);
             const baseFreq = possibleBands[Math.floor(Math.random() * possibleBands.length)];
@@ -295,27 +320,22 @@ async function setupQuestion() {
             
             state.currentOnsetStart = onset;
             state.targetFreq = freq;
-            
-            // 保存
             state.generatedParams[state.currentQuestionIndex] = { onset, freq };
         } else {
-            // Phase 2: 保存された値を使用
             const cached = state.generatedParams[state.currentQuestionIndex];
             state.currentOnsetStart = cached.onset;
             state.targetFreq = cached.freq;
         }
 
-        // ノイズ生成 (音量修正: 0.15 -> 0.05)
         const noise = ctx.createBufferSource();
         noise.buffer = createNoiseBuffer(ctx);
         noise.loop = true;
         const noiseGain = ctx.createGain();
-        noiseGain.gain.value = 0.05; // 修正点
+        noiseGain.gain.value = 0.05;
         noise.connect(noiseGain).connect(masterGain);
         noise.start(t);
         state.nodes.noise = noise;
 
-        // 発振器 (音量修正: Max 0.8 -> 0.2)
         const osc = ctx.createOscillator();
         osc.type = 'sine';
         osc.frequency.value = state.targetFreq;
@@ -323,19 +343,23 @@ async function setupQuestion() {
         const howlGain = ctx.createGain();
         howlGain.gain.setValueAtTime(0, t);
         howlGain.gain.setValueAtTime(0.001, t + state.currentOnsetStart);
-        // 急激に大きくしすぎない
-        howlGain.gain.linearRampToValueAtTime(0.2, t + state.currentOnsetStart + RAMP_DURATION); // 修正点: 0.2
+        howlGain.gain.linearRampToValueAtTime(0.2, t + state.currentOnsetStart + RAMP_DURATION);
 
         osc.connect(howlGain).connect(masterGain);
         osc.start(t);
         state.nodes.osc = osc;
 
-        // アナライザー接続 (マスターの前、またはマスターの後)
-        // ここではマスターの出力を監視
         setupAnalyzer(masterGain);
+        state.currentRampDuration = RAMP_DURATION;
+        setMode('playing');
+        
+        // 描画ループ開始
+        startAnalyzerLoop();
+        
+        requestAnimationFrame(updateTimer);
 
+    // --- Audio File Mode ---
     } else if (currentConfig.type === 'audio') {
-        // Level 2/3: Audio File
         setStatus(`Q${state.currentQuestionIndex + 1}: Loading...`);
         
         try {
@@ -346,15 +370,20 @@ async function setupQuestion() {
             const source = ctx.createBufferSource();
             source.buffer = data.buffer;
             
-            // ソースをマスターへ
             source.connect(masterGain);
             source.start(t);
             state.nodes.source = source;
 
-            // アナライザー接続
             setupAnalyzer(masterGain);
-
+            
             setStatus(`Q${state.currentQuestionIndex + 1}: ${currentConfig.id}`);
+            state.currentRampDuration = RAMP_DURATION;
+            setMode('playing');
+
+            // 描画ループ開始
+            startAnalyzerLoop();
+
+            requestAnimationFrame(updateTimer);
 
         } catch (e) {
             console.error(e);
@@ -362,10 +391,6 @@ async function setupQuestion() {
             return;
         }
     }
-
-    state.currentRampDuration = RAMP_DURATION;
-    setMode('playing');
-    requestAnimationFrame(updateTimer);
 }
 
 
@@ -375,7 +400,6 @@ function updateTimer() {
     const elapsed = state.audioCtx.currentTime - state.startTime;
     els.timer.textContent = elapsed.toFixed(3);
     
-    // Visual Hint (Text Timer color)
     const onsetStart = state.currentOnsetStart;
     if (elapsed >= onsetStart + state.currentRampDuration) els.timer.classList.add('text-red-500');
     else if (elapsed >= onsetStart) els.timer.classList.add('text-yellow-400');
@@ -388,19 +412,17 @@ function handleReaction() {
     if (state.mode !== 'playing') return;
     
     const pressTime = state.audioCtx.currentTime - state.startTime;
-    stopAudio(); // Stop sound & animation
+    stopAudio(); 
 
     const onsetStart = state.currentOnsetStart;
 
     if (pressTime < onsetStart) {
-        // Fail
         state.reactionTime = pressTime;
         els.failTime.textContent = pressTime.toFixed(3);
         els.actualOnset.textContent = onsetStart.toFixed(3);
         recordResult(false);
         setMode('fail');
     } else {
-        // Success -> Guess Freq
         state.reactionTime = pressTime - onsetStart;
         setMode('guessing');
         renderGEQ();
@@ -449,19 +471,15 @@ function recordResult(success) {
 function nextQuestion() {
     state.currentQuestionIndex++;
     
-    // 全問終了チェック
     if (state.currentQuestionIndex >= SCENARIOS.length) {
         if (state.phase === 1) {
-            // Phase 1 終了 -> Phase 2 準備画面へ
             state.phase = 2;
             state.currentQuestionIndex = 0;
             setMode('phase2Start');
         } else {
-            // Phase 2 終了 -> 完全終了
             alert("テスト終了！全データはコンソールに出力されています。");
             console.log("--- FINAL RESULTS ---");
             console.table(state.results);
-            // CSV出力の代わりにログ表示で終了
         }
     } else {
         setupQuestion();
@@ -474,12 +492,10 @@ function setStatus(text) {
 }
 
 function setMode(mode) {
-    state.mode = (mode === 'phase2Start') ? 'idle' : mode; // マッピング調整
+    state.mode = (mode === 'phase2Start') ? 'idle' : mode; 
     
-    // 全画面非表示
     Object.values(els.screens).forEach(el => el.classList.add('hidden'));
 
-    // 該当画面表示
     if (mode === 'idle') els.screens.idle.classList.remove('hidden');
     else if (mode === 'phase2Start') els.screens.phase2.classList.remove('hidden');
     else if (mode === 'playing') els.screens.playing.classList.remove('hidden');
@@ -487,14 +503,12 @@ function setMode(mode) {
     else if (mode === 'result') els.screens.result.classList.remove('hidden');
     else if (mode === 'fail') els.screens.fail.classList.remove('hidden');
 
-    // Canvas表示制御 (Phase2 playing時のみ)
     if (mode === 'playing' && state.phase === 2) {
         els.analyzerContainer.classList.remove('hidden');
     } else {
         els.analyzerContainer.classList.add('hidden');
     }
 
-    // Status Text
     if (mode === 'phase2Start') setStatus("INTERMISSION");
     else if (mode === 'playing') {
         els.status.className = 'text-xl font-bold text-green-400 animate-pulse';
@@ -540,7 +554,6 @@ function renderResult() {
     els.resDiff.innerHTML += `<br><span class="text-xs text-gray-500">Correct: ${state.score.correctBand}Hz</span>`;
     els.resTotal.textContent = state.score.total;
     
-    // ボタンテキスト
     const isLastQ = (state.currentQuestionIndex >= SCENARIOS.length - 1);
     if (isLastQ && state.phase === 1) els.btnNext.textContent = "Go to Phase 2";
     else if (isLastQ && state.phase === 2) els.btnNext.textContent = "Finish Test";
@@ -562,7 +575,6 @@ els.btnRetry.onclick = setupQuestion;
 window.addEventListener('keydown', (e) => {
     if (e.code === 'Space') {
         e.preventDefault();
-        // Phase 2 Start画面でのスペースキー対応
         if (!els.screens.phase2.classList.contains('hidden')) {
              setupQuestion();
              return;
