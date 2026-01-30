@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Howling Detection Trainer (Usability Test)</title>
+    <title>Howling Detection Trainer (Experiment)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="./style.css">
     <script src="main.js" type="module" defer></script>
@@ -16,7 +16,7 @@
             <span class="text-blue-500">■</span> Howling Trainer
         </h1>
         <div class="text-xs text-gray-400">
-            <span id="phaseDisplay" class="bg-gray-800 px-2 py-1 rounded border border-gray-600">PHASE 1: Blind Test</span>
+            <span id="phaseDisplay" class="bg-gray-800 px-2 py-1 rounded border border-gray-600">Setup</span>
         </div>
     </header>
 
@@ -48,11 +48,38 @@
         <!-- ゲームエリア -->
         <div id="gameContainer" class="min-h-[300px] flex flex-col items-center justify-center relative">
             
+            <!-- CALIBRATION画面 (新規追加) -->
+            <div id="screenCalibration" class="text-center space-y-6 max-w-lg mx-auto">
+                <div class="p-6 bg-gray-800 rounded-xl border border-gray-700">
+                    <h2 class="text-2xl font-bold text-white mb-4">Audio Calibration</h2>
+                    <p class="text-gray-400 text-sm mb-6 text-left">
+                        実験を始める前に、音量調整を行ってください。<br>
+                        1. 下の<strong class="text-white">「Test Tone」</strong>ボタンを押して音楽を再生します。<br>
+                        2. 普段音楽を聴く程度で、<strong class="text-white">各楽器が聞き分けられる程度の音量</strong>にPC/端末の音量を調整してください。<br>
+                        3. 調整が終わったら停止し、Nextボタンを押してください。
+                    </p>
+                    
+                    <div class="flex flex-col items-center gap-4">
+                        <button id="btnTestTone" class="w-full py-4 bg-gray-700 hover:bg-gray-600 text-white rounded font-bold transition-colors flex items-center justify-center gap-2">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path></svg>
+                            <span>Play / Stop Test Tone</span>
+                        </button>
+                        
+                        <div class="h-4"></div> <!-- Spacer -->
+
+                        <button id="btnCalibNext" class="px-8 py-2 border border-blue-500 text-blue-400 rounded hover:bg-blue-900/30 transition-colors">
+                            Next (Start Experiment) &rarr;
+                        </button>
+                    </div>
+                </div>
+                <p class="text-xs text-yellow-500">※ イヤホンまたはヘッドホンの使用を推奨します。</p>
+            </div>
+
             <!-- IDLE画面 -->
-            <div id="screenIdle" class="text-center space-y-4">
+            <div id="screenIdle" class="hidden text-center space-y-4">
                 <h2 class="text-2xl font-bold text-white">Phase 1: Blind Test</h2>
                 <p class="text-gray-400 text-sm mb-4">
-                    まずは視覚補助なしで、聴覚のみを頼りにハウリングを検知・特定してください。<br>
+                    視覚補助なしで、聴覚のみを頼りにハウリングを検知・特定してください。<br>
                     全15問行います。
                 </p>
                 <button id="btnStart" class="px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-full font-bold text-xl shadow-lg transition-all hover:scale-105">
@@ -67,9 +94,9 @@
                 </div>
                 <h2 class="text-2xl font-bold text-purple-300">Phase 2: Assisted Test</h2>
                 <p class="text-gray-300 text-sm max-w-lg mx-auto">
-                    フェーズ1と同じ問題（同じタイミング・周波数）が出題されます。<br>
+                    Phase 1と同じ問題が出題されます。<br>
                     今回は<strong class="text-white">「ハウリング検知機能付きスペクトラムアナライザー」</strong>が表示されます。<br>
-                    このツールを使用し、どれだけ検知が容易になるか確認してください。
+                    ツールを使用して検知・特定を行ってください。
                 </p>
                 <button id="btnStartPhase2" class="mt-6 px-8 py-4 bg-purple-600 hover:bg-purple-500 text-white rounded-full font-bold text-xl shadow-lg transition-all hover:scale-105">
                     START PHASE 2
@@ -98,23 +125,19 @@
             </div>
 
             <!-- RESULT画面 -->
-            <div id="screenResult" class="hidden w-full max-w-2xl mx-auto space-y-4">
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div class="bg-gray-800 p-4 rounded border border-gray-700 text-center">
-                        <div class="text-xs text-gray-400">REACTION</div>
-                        <div id="resTime" class="text-2xl font-mono font-bold text-blue-400">--</div>
-                    </div>
-                    <div class="bg-gray-800 p-4 rounded border border-gray-700 text-center">
-                        <div class="text-xs text-gray-400">ACCURACY</div>
-                        <div id="resDiff" class="text-2xl font-mono font-bold text-purple-400">--</div>
-                    </div>
-                    <div class="bg-gray-800 p-4 rounded border border-gray-700 text-center flex flex-col justify-center">
-                        <div class="text-xs text-gray-400">TOTAL SCORE</div>
-                        <div id="resTotal" class="text-4xl font-black text-white">0</div>
-                    </div>
+            <div id="screenResult" class="hidden w-full max-w-lg mx-auto space-y-4 text-center">
+                <div class="bg-gray-800 p-8 rounded border border-gray-700 flex flex-col items-center justify-center space-y-4">
+                    <svg class="w-16 h-16 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <h3 class="text-2xl font-bold text-white">Recorded</h3>
+                    <p class="text-gray-400 text-sm">
+                        回答が記録されました。<br>
+                        学習効果を防ぐため、正解は表示されません。
+                    </p>
                 </div>
                 <div class="flex justify-center mt-6">
-                    <button id="btnNext" class="px-6 py-2 border border-blue-500 text-blue-400 rounded hover:bg-blue-900/30 transition-colors">
+                    <button id="btnNext" class="px-8 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded font-bold transition-colors">
                         Next Question &rarr;
                     </button>
                 </div>
@@ -125,10 +148,38 @@
                 <div class="text-red-500 text-6xl mb-4">!</div>
                 <h2 class="text-2xl font-bold text-red-400">Too Early!</h2>
                 <div class="text-gray-300 mb-6 space-y-2">
-                    <p>反応時間: <span id="failTime" class="font-mono text-white">--</span>s</p>
-                    <p class="text-sm">正解: <span id="actualOnset" class="font-mono text-yellow-400">--</span>s</p>
+                    <p>ハウリング発生前にボタンが押されました。</p>
+                    <p class="text-sm text-gray-500">この問題は「失敗」として記録されます。</p>
                 </div>
-                <button id="btnRetry" class="px-6 py-2 bg-gray-700 hover:bg-gray-600 rounded">Try Again</button>
+                <button id="btnNextFail" class="px-6 py-2 bg-gray-700 hover:bg-gray-600 rounded text-white">
+                    Next Question &rarr;
+                </button>
+            </div>
+
+            <!-- EXPORT画面 -->
+            <div id="screenExport" class="hidden w-full max-w-3xl mx-auto space-y-6 text-center animate-fade-in">
+                <div class="bg-gray-800 p-6 rounded border border-gray-700">
+                    <h3 class="text-2xl font-bold text-green-400 mb-2">Test Complete!</h3>
+                    <p class="text-gray-300 text-sm mb-4">
+                        すべての問題が終了しました。<br>
+                        以下のデータをコピーして、指定のフォームまたは管理者に送信してください。
+                    </p>
+                    
+                    <textarea id="exportData" class="w-full h-48 bg-gray-900 text-xs font-mono text-gray-300 p-4 rounded border border-gray-600 focus:border-blue-500 focus:outline-none resize-none" readonly></textarea>
+                    
+                    <div class="mt-4 flex justify-center gap-4">
+                        <button id="btnCopy" class="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded font-bold transition-colors flex items-center gap-2 shadow-lg">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
+                            Copy to Clipboard
+                        </button>
+                    </div>
+                    <p id="copyStatus" class="mt-2 text-sm h-5 text-green-400 font-bold"></p>
+                </div>
+                
+                <div class="text-xs text-gray-500">
+                    ご協力ありがとうございました。<br>
+                    Thank you for your cooperation.
+                </div>
             </div>
 
         </div>
