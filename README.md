@@ -32,7 +32,7 @@ Phase 1と同じ問題が出題されますが、今回は**「支援ツール�
 
 全問終了すると、結果データが表示されます。
 
-「Copy to Clipboard」ボタンを押してデータをコピーし、指定の送付先（Googleフォーム）に貼り付けて送信してください。
+「Copy to Clipboard」ボタンを押してデータをコピーし、[Googleフォーム](https://docs.google.com/forms/d/e/1FAIpQLSf6jHVVsCRJNr1BcdyyTYiKqH64e6R4d9W2_v0smdOz_rmnxw/viewform?usp=dialog)に貼り付けて送信してください。
 
 ## 3. 操作方法
 
