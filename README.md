@@ -1,14 +1,13 @@
 ## 1.実行方法
+```
+git cloen https://github.com/say1low/Howling-Detection-Test.git
 
-必ず以下のいずれかの方法でローカルサーバーを立ち上げて実行してください。
+cd Howling-Detection-Test
 
-### Node.jsがインストールされている場合:
+npx serve //Node.jsがインストールされている場合
 
-`npx serve` などを実行。
-
-### Pythonがインストールされている場合:
-
-プロジェクトフォルダでコマンド `python -m http.server` を実行し、http://localhost:8000 にアクセス。
+`python -m http.server //pythonがインストールされている場合
+```
 
 ## 2. 実験の流れ
 
