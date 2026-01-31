@@ -6,10 +6,6 @@
 
 `npx serve` などを実行。
 
-### VS Codeを使用している場合:
-
-拡張機能「Live Server」をインストールし、`index.html` を右クリックして `Open with Live Server` を選択。
-
 ### Pythonがインストールされている場合:
 
 プロジェクトフォルダでコマンド `python -m http.server` を実行し、http://localhost:8000 にアクセス。
@@ -18,15 +14,7 @@
 
 実験は 「Phase 1」 と 「Phase 2」 の2部構成で行われます。全30問です。
 
-### 音量調整 (Setup)
-
-実験ページを開くと、最初に音量調整画面が表示されます。
-
-音声を聞き、PCの音量を調整してください。
-
-調整後、「Next」を押して実験を開始します。
-
-### Phase 1: Blind Test (15問)
+### Phase 1: Brind Test (15問)
 
 視覚的な補助なしで、自分の耳だけを頼りにハウリングを聞き分けます。
 
