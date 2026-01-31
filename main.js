@@ -15,7 +15,7 @@ const SCENARIOS = [
     { id: '2-1', type: 'audio', path: 'assets/Speech/speech_01002' },
     { id: '2-2', type: 'audio', path: 'assets/Speech/speech_02004' },
     { id: '2-3', type: 'audio', path: 'assets/Speech/speech_03023' },
-    { id: '2-4', type: 'audio', path: 'assets/Speech/speech_04011' }, 
+    { id: '2-4', type: 'audio', path: 'assets/Speech/speech_04010' }, 
     { id: '2-5', type: 'audio', path: 'assets/Speech/speech_05004' },
     // Level 3: Music
     { id: '3-1', type: 'audio', path: 'assets/Music/music_01004' },
@@ -37,9 +37,11 @@ class AudioEngine {
         this.fftSize = 2048;
         this.minDb = -100;
         this.maxDb = -10;
-        this.peakDecay = 0.5;
+        this.peakDecay = 0.01;
         this.historySize = 64;
-        this.dynamicThresholdAlpha = 1.5;
+        this.dynamicThresholdAlpha = 1.5
+        
+        ;
         this.ninosThreshold = 0.04;
 
         // Analysis Data Buffers
@@ -68,6 +70,20 @@ class AudioEngine {
             } catch(e) {}
         });
         this.nodes = {};
+        this.stopTestTone(); 
+    }
+
+    stopDelayed(delaySeconds) {
+        const stopTime = this.ctx.currentTime + delaySeconds;
+        Object.values(this.nodes).forEach(node => {
+            try {
+                if (node.stop) { // AudioBufferSourceNode または OscillatorNode のみ stop メソッドを持つ
+                    node.stop(stopTime);
+                }
+                node.disconnect(); // すぐに接続解除
+            } catch(e) {}
+        });
+        this.nodes = {}; // ノード管理はクリア
         this.stopTestTone(); 
     }
 
@@ -209,52 +225,21 @@ class AudioEngine {
     }
 
     detectHowlingFullSpectrum(dbData, linearData) {
-        let maxValDb = -Infinity; 
-        let maxIndex = 0;
-
-        for(let i = 0; i < dbData.length; i++) {
-            if (dbData[i] > maxValDb) {
-                maxValDb = dbData[i];
-                maxIndex = i;
-            }
-        }
-
-        let detected = false;
-        let level = 'none';
-        
         if (this.linearHistory.length < this.historySize) {
-            const freq = maxIndex * (this.sampleRate / 2 / dbData.length);
-            return { detected: false, freq, maxIndex, maxVal: maxValDb, level: 'none', ninosValue: 0 };
+            const freq = dbData.indexOf(Math.max(...dbData)) * (this.sampleRate / 2 / dbData.length);
+            return { detected: false, freq, maxIndex: 0, maxVal: -Infinity, level: 'none', ninosValue: 0, candidates: [] };
         }
 
-        let dynamicThreshLinear = 0;
-        if (linearData && linearData.length > 0) {
-            let sum = 0;
-            let sumSq = 0;
-            const len = linearData.length;
-            for (let i = 0; i < len; i++) {
-                const v = linearData[i];
-                sum += v;
-                sumSq += v * v;
-            }
-            const mean = sum / len;
-            const variance = (sumSq / len) - (mean * mean);
-            const stdDev = Math.sqrt(Math.max(0, variance));
-            dynamicThreshLinear = mean + (this.dynamicThresholdAlpha * stdDev);
-        }
-
+        const binCount = dbData.length;
         const states = this.linearHistory.length;
         const nRoot4 = Math.pow(states, 0.25);
         const sparsityDenominator = nRoot4 - 1;
 
-        let maxHdf = -1;
-        let maxHdfIndex = -1;
-        const binCount = dbData.length;
-
+        // 1. すべての周波数ビンでスコアを計算
+        const allCandidates = [];
         for (let b = 0; b < binCount; b++) {
             let s2 = 0; 
             let s4 = 0; 
-            
             for (let t = 0; t < states; t++) {
                 const v = this.linearHistory[t][b];
                 const v2 = v * v;
@@ -267,36 +252,74 @@ class AudioEngine {
 
             const l4 = Math.pow(s4, 0.25);
             const sparsity = ((l2 / l4) - 1) / sparsityDenominator;
-            const hdf = Math.max(0, sparsity * l2);
+            const hdf = Math.max(0, sparsity * l2); // これをNINOSスコアとして扱う
 
-            if (hdf > maxHdf) {
-                maxHdf = hdf;
-                maxHdfIndex = b;
+            if (hdf > 0) {
+                 allCandidates.push({
+                    index: b,
+                    score: hdf, 
+                    freq: b * (this.sampleRate / 2 / binCount)
+                });
             }
         }
 
-        if (maxHdfIndex !== -1) {
-            const isNinosExceeded = maxHdf > this.ninosThreshold;
-            const isStatisticallyStrong = linearData[maxHdfIndex] > dynamicThreshLinear;
+        // 2. 上位5個をハウリング候補として抽出
+        allCandidates.sort((a, b) => b.score - a.score);
+        const top5Candidates = allCandidates.slice(0, 5);
+
+        // 3. ハウリング判定
+        let detected = false;
+        let level = 'none';
+        let primaryCandidate = null;
+
+        // 動的しきい値の計算
+        let sum = 0;
+        let sumSq = 0;
+        const len = linearData.length;
+        for (let i = 0; i < len; i++) {
+            const v = linearData[i];
+            sum += v;
+            sumSq += v * v;
+        }
+        const mean = sum / len;
+        const variance = (sumSq / len) - (mean * mean);
+        const stdDev = Math.sqrt(Math.max(0, variance));
+        const dynamicThreshLinear = mean + (this.dynamicThresholdAlpha * stdDev);
+
+        for (const candidate of top5Candidates) {
+            const isNinosExceeded = candidate.score > this.ninosThreshold;
+            const isStatisticallyStrong = linearData[candidate.index] > dynamicThreshLinear;
 
             if (isNinosExceeded && isStatisticallyStrong) {
                 detected = true;
                 level = 'critical';
-                maxIndex = maxHdfIndex; 
-            } else if (isNinosExceeded || isStatisticallyStrong) {
+                if (!primaryCandidate) primaryCandidate = candidate;
+            } else if ((isNinosExceeded || isStatisticallyStrong) && level !== 'critical') {
                 level = 'warning';
-                maxIndex = maxHdfIndex;
+                if (!primaryCandidate) primaryCandidate = candidate;
             }
         }
         
+        if (!primaryCandidate) {
+            primaryCandidate = top5Candidates.length > 0 ? top5Candidates[0] : { index: 0, freq: 0, score: 0 };
+        }
+        
+        const maxValDb = dbData[primaryCandidate.index];
+
         if (maxValDb < -80) {
             detected = false;
             level = 'none';
         }
 
-        const freq = maxIndex * (this.sampleRate / 2 / dbData.length);
-
-        return { detected, freq, maxIndex, maxVal: maxValDb, level, ninosValue: maxHdf };
+        return { 
+            detected, 
+            freq: primaryCandidate.freq, 
+            maxIndex: primaryCandidate.index, 
+            maxVal: maxValDb, 
+            level, 
+            ninosValue: primaryCandidate.score,
+            candidates: top5Candidates // 候補リストを返す
+        };
     }
 }
 
@@ -481,7 +504,20 @@ function drawSpectrum(data, peakValues, peakInfo, minDb, maxDb) {
         ctx.strokeStyle = 'rgba(255, 235, 59, 0.8)'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]); ctx.stroke(); ctx.setLineDash([]);
     }
 
-    // Highlight
+    // Highlight Candidates
+    if (peakInfo && peakInfo.candidates) {
+        const highlightWidth = 4;
+        peakInfo.candidates.forEach((candidate, i) => {
+            if (i === 0) return; // Skip primary, it's handled below
+            const safeIndex = Math.max(1, candidate.index);
+            const percent = Math.log(safeIndex) / Math.log(bufferLength - 1);
+            const detectedX = width * percent;
+            ctx.fillStyle = 'rgba(255, 193, 7, 0.5)'; // Secondary candidate color
+            ctx.fillRect(detectedX - highlightWidth/2, 0, highlightWidth, height);
+        });
+    }
+
+    // Highlight Primary Detected Howl
     if (peakInfo.detected) {
         const safeIndex = Math.max(1, peakInfo.maxIndex); 
         const percent = Math.log(safeIndex) / Math.log(bufferLength - 1);
@@ -631,7 +667,7 @@ function handleReaction() {
     if (state.mode !== 'playing') return;
     
     const pressTime = state.audio.currentTime - state.startTime;
-    state.audio.stop();
+    state.audio.stopDelayed(1.0); // 1秒後に音声停止をスケジュール
     if (state.animationId) { cancelAnimationFrame(state.animationId); state.animationId = null; }
 
     const onsetStart = state.currentOnsetStart;
