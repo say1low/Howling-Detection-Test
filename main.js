@@ -39,8 +39,8 @@ class AudioEngine {
         this.maxDb = -10;
         this.peakDecay = 0.5;
         this.historySize = 64;
-        this.dynamicThresholdAlpha = 6.0;
-        this.ninosThreshold = 0.15;
+        this.dynamicThresholdAlpha = 1.5;
+        this.ninosThreshold = 0.04;
 
         // Analysis Data Buffers
         this.analyserData = null;
@@ -111,14 +111,28 @@ class AudioEngine {
 
                 const source = this.ctx.createBufferSource();
                 source.buffer = audioBuffer;
-                source.loop = true;
                 
                 const gain = this.ctx.createGain();
                 gain.gain.value = 0.5; // 音量調整
                 
                 source.connect(gain).connect(this.ctx.destination);
-                source.start();
+                source.start(0, 0, 8); // Play for 8 seconds from the beginning
                 this.testToneNode = source;
+
+                source.onended = () => {
+                    if (this.testToneNode === source) {
+                        this.testToneNode = null;
+                        // Update UI when playback finishes naturally
+                        const btn = els.btnTestTone;
+                        if (btn) {
+                             const btnSpan = btn.querySelector('span');
+                             if (btnSpan) btnSpan.textContent = "Play Test Tone";
+                             btn.classList.remove('bg-green-600');
+                             btn.classList.add('bg-gray-700');
+                             btn.disabled = false;
+                        }
+                    }
+                };
                 return true; // Playing
             } catch (e) {
                 console.error(e);
@@ -131,6 +145,7 @@ class AudioEngine {
     stopTestTone() {
         if (this.testToneNode) {
             try {
+                this.testToneNode.onended = null; // Prevent onended from firing on manual stop
                 this.testToneNode.stop();
                 this.testToneNode.disconnect();
             } catch(e) {}
@@ -785,15 +800,35 @@ if (els.btnCopy) {
 // Calibration Buttons
 if (els.btnTestTone) {
     els.btnTestTone.onclick = async () => {
-        els.btnTestTone.disabled = true;
-        els.btnTestTone.querySelector('span').textContent = "Loading...";
-        
-        const isPlaying = await state.audio.toggleTestTone();
-        
-        els.btnTestTone.disabled = false;
-        els.btnTestTone.querySelector('span').textContent = isPlaying ? "Stop Test Tone" : "Play Test Tone";
-        els.btnTestTone.classList.toggle('bg-green-600', isPlaying);
-        els.btnTestTone.classList.toggle('bg-gray-700', !isPlaying);
+        const btn = els.btnTestTone;
+        const btnSpan = btn.querySelector('span');
+
+        // If it's already playing, stop it.
+        if (state.audio.testToneNode) {
+            state.audio.stopTestTone();
+            btnSpan.textContent = "Play Test Tone";
+            btn.classList.remove('bg-green-600');
+            btn.classList.add('bg-gray-700');
+            btn.disabled = false;
+        } else {
+            // Start playing
+            btn.disabled = true;
+            btnSpan.textContent = "Loading...";
+            const isPlaying = await state.audio.toggleTestTone();
+            
+            if (isPlaying) {
+                btnSpan.textContent = "Stop Test Tone";
+                btn.classList.add('bg-green-600');
+                btn.classList.remove('bg-gray-700');
+                btn.disabled = false;
+            } else {
+                 // Error occurred in toggleTestTone, or it was stopped before it could play
+                btnSpan.textContent = "Play Test Tone";
+                btn.classList.remove('bg-green-600');
+                btn.classList.add('bg-gray-700');
+                btn.disabled = false;
+            }
+        }
     };
 }
 
