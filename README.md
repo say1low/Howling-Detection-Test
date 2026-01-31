@@ -3,7 +3,7 @@
 以下の文章をよく読んでから実験を行ってください。
 ## 1.実行方法
 ```
-git cloen https://github.com/say1low/Howling-Detection-Test.git
+git clone https://github.com/say1low/Howling-Detection-Test.git
 
 cd Howling-Detection-Test
 
