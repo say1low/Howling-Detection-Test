@@ -2,11 +2,8 @@
 本実験は、音響機器における不快音「ハウリング」を検知・特定する作業において、視覚的な支援ツールがどの程度有効かを検証することを目的としています。
 以下の文章をよく読んでから実験を行ってください。
 ## 1.実行方法
+ZIPファイルをダウンロードする。
 ```
-git clone https://github.com/say1low/Howling-Detection-Test.git
-
-cd Howling-Detection-Test
-
 npx serve //Node.jsがインストールされている場合
 
 `python -m http.server //pythonがインストールされている場合
